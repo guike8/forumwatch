@@ -1,0 +1,7 @@
+{
+  "listen": "127.0.0.1:8080",
+  "token_env": "FORUMWATCH_TOKEN",
+  "state_path": "data/state.json",
+  "tor_proxy": "127.0.0.1:9050",
+  "sources": []
+}
