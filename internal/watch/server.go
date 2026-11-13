@@ -15,11 +15,33 @@ import (
 )
 
 type Hub struct {
-	mu      sync.Mutex
-	clients map[chan Item]struct{}
+	mu        sync.Mutex
+	clients   map[chan Item]struct{}
+	published map[string]string      // latest announced revision, not an event queue
+	filters   map[string]alertFilter // immutable after construction; nil accepts all
 }
 
-func NewHub() *Hub { return &Hub{clients: make(map[chan Item]struct{})} }
+func NewHub() *Hub {
+	return &Hub{clients: make(map[chan Item]struct{}), published: make(map[string]string)}
+}
+
+// HasPublished prevents background recovery from overtaking a new item alert.
+func (h *Hub) HasPublished(id, hash string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hashPublished, ok := h.published[id]
+	return ok && hashPublished == hash
+}
+
+func (h *Hub) markSummaryRecovery(items []Item) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, item := range items {
+		if h.Matches(item) {
+			h.published[item.ID] = item.Hash
+		}
+	}
+}
 
 func (h *Hub) Subscribe() (chan Item, func()) {
 	h.mu.Lock()
@@ -39,6 +61,17 @@ func (h *Hub) Subscribe() (chan Item, func()) {
 func (h *Hub) Publish(item Item) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.Matches(item) {
+		if _, exists := h.published[item.ID]; !exists {
+			return
+		}
+		delete(h.published, item.ID)
+		// Remove an older matching card without leaking the excluded revision.
+		item = Item{ID: item.ID, Source: item.Source, Hash: item.Hash,
+			Observed: item.Observed, Kind: "filtered", Filtered: true}
+	} else {
+		h.published[item.ID] = item.Hash
+	}
 	for ch := range h.clients {
 		select {
 		case ch <- item:
@@ -58,7 +91,7 @@ func Handler(token string, store *Store, hub *Hub, collector *Collector) http.Ha
 	})
 	mux.HandleFunc("GET /api/items", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(store.Items(200))
+		json.NewEncoder(w).Encode(hub.Items(store, 200))
 	})
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -87,7 +120,7 @@ func Handler(token string, store *Store, hub *Hub, collector *Collector) http.Ha
 			Version string     `xml:"version,attr"`
 			Channel rssChannel `xml:"channel"`
 		}{Version: "2.0", Channel: rssChannel{Title: "ForumWatch", Link: "http://localhost/", Description: "First-party defensive monitoring; claims are unverified."}}
-		for _, item := range store.Items(200) {
+		for _, item := range hub.Items(store, 200) {
 			entry := rssItem{Title: "[" + item.Source + "] " + item.Title, Link: item.URL,
 				Description: html.EscapeString(item.Summary), PubDate: item.Observed.Format(time.RFC1123Z), Category: item.Kind}
 			// A revision gets a new GUID, so feed readers can surface changed entries.

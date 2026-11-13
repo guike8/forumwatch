@@ -1,0 +1,3 @@
+scrapling[fetchers] @ git+https://github.com/D4Vinci/Scrapling.git@3a4bb5b0a008233c85269a0a38a6d08edd4ce329
+patchright==1.64.4
+playwright==1.65.1

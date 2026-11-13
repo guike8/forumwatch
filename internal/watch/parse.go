@@ -15,12 +15,17 @@ import (
 )
 
 type Candidate struct {
-	Key       string
-	Title     string
-	URL       string
-	Summary   string
-	Published string
-	Updated   string
+	Key         string
+	Title       string
+	URL         string
+	Summary     string
+	Author      string
+	PostID      string
+	Body        string
+	Access      string
+	HiddenLinks int
+	Published   string
+	Updated     string
 }
 
 type feedText struct {

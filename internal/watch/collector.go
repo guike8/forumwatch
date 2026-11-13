@@ -22,20 +22,27 @@ import (
 const maxBody = 2 << 20
 
 type Status struct {
-	ID          string    `json:"id"`
-	Transport   string    `json:"transport"`
-	LastAttempt time.Time `json:"last_attempt"`
-	LastSuccess time.Time `json:"last_success"`
-	NextCheck   time.Time `json:"next_check"`
-	Error       string    `json:"error,omitempty"`
-	Failures    int       `json:"consecutive_failures"`
-	FetchMS     int64     `json:"fetch_ms"`
+	ContentCoverage
+	ID             string    `json:"id"`
+	Transport      string    `json:"transport"`
+	LastAttempt    time.Time `json:"last_attempt"`
+	LastSuccess    time.Time `json:"last_success"`
+	NextCheck      time.Time `json:"next_check"`
+	Error          string    `json:"error,omitempty"`
+	Failures       int       `json:"consecutive_failures"`
+	FetchMS        int64     `json:"fetch_ms"`
+	PendingPages   int       `json:"pending_pages,omitempty"`
+	TrackedThreads int       `json:"tracked_threads,omitempty"`
+	FailedPages    int       `json:"failed_pages,omitempty"`
+	MatchingItems  int       `json:"matching_items"`
+	FilteredItems  int       `json:"filtered_items"`
 }
 
 type Collector struct {
 	Config Config
 	Store  *Store
 	Hub    *Hub
+	OnItem func(Item) // Optional nonblocking enrichment hook, called after publication.
 	mu     sync.RWMutex
 	status map[string]Status
 }
@@ -51,9 +58,22 @@ func NewCollector(c Config, s *Store, h *Hub) *Collector {
 func (c *Collector) Statuses() []Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	counts := make(map[string][2]int)
+	for _, item := range c.Store.Items(0) {
+		count := counts[item.Source]
+		if c.Hub.Matches(item) {
+			count[0]++
+		} else {
+			count[1]++
+		}
+		counts[item.Source] = count
+	}
 	result := make([]Status, 0, len(c.Config.Sources))
 	for _, s := range c.Config.Sources {
-		result = append(result, c.status[s.ID])
+		status := c.status[s.ID]
+		status.MatchingItems, status.FilteredItems = counts[s.ID][0], counts[s.ID][1]
+		status.ContentCoverage = c.Store.contentCoverage(s.ID)
+		result = append(result, status)
 	}
 	return result
 }
@@ -88,6 +108,9 @@ func newClient(s Source, torProxy string) (*http.Client, error) {
 			if !webURL(req.URL) || req.URL.User != nil {
 				return fmt.Errorf("unsupported redirect destination")
 			}
+			if crawlFormat(s.Format) && len(via) > 0 && !browserFinalURL(via[0].URL, req.URL) {
+				return fmt.Errorf("crawl redirect left the configured source")
+			}
 			if onion(req.URL.Hostname()) && s.Transport != "tor" {
 				return fmt.Errorf("refusing direct redirect to onion destination")
 			}
@@ -105,8 +128,17 @@ func (c *Collector) Run(ctx context.Context) error {
 	clients := make([]*http.Client, len(c.Config.Sources))
 	hosts := make(map[string]chan struct{})
 	for i, s := range c.Config.Sources {
-		client, err := newClient(s, c.Config.TorProxy)
+		var client *http.Client
+		var err error
+		if s.Fetcher == "browser" {
+			client, err = newBrowserClient(s, c.Config)
+		} else {
+			client, err = newClient(s, c.Config.TorProxy)
+		}
 		if err != nil {
+			for _, initialized := range clients[:i] {
+				initialized.CloseIdleConnections()
+			}
 			return err
 		}
 		clients[i] = client
@@ -144,7 +176,13 @@ func (c *Collector) Run(ctx context.Context) error {
 				c.mu.Lock()
 				status = c.status[s.ID]
 				status.FetchMS = time.Since(started).Milliseconds()
-				if err != nil {
+				if _, partial := err.(*crawlPartialError); partial {
+					// Page-local retry deadlines keep healthy watches on their normal
+					// interval. Do not advertise partial coverage as a full success.
+					failures = 0
+					status.Error = err.Error()
+					slog.Warn("source coverage incomplete", "source", s.ID, "failed_pages", status.FailedPages)
+				} else if err != nil {
 					failures++
 					status.Error = err.Error()
 					delay = failureDelay(delay, failures)
@@ -168,24 +206,37 @@ func (c *Collector) Run(ctx context.Context) error {
 }
 
 func (c *Collector) poll(ctx context.Context, s Source, client *http.Client) (time.Duration, error) {
+	if crawlFormat(s.Format) {
+		return c.pollCrawl(ctx, s, client)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
 	if err != nil {
 		return 0, err
 	}
 	checkpoint := c.Store.Checkpoint(s.ID)
-	req.Header.Set("User-Agent", s.UserAgent)
-	if checkpoint.ETag != "" {
-		req.Header.Set("If-None-Match", checkpoint.ETag)
-	}
-	if checkpoint.LastModified != "" {
-		req.Header.Set("If-Modified-Since", checkpoint.LastModified)
+	if s.Fetcher != "browser" {
+		req.Header.Set("User-Agent", s.UserAgent)
+		if checkpoint.ETag != "" {
+			req.Header.Set("If-None-Match", checkpoint.ETag)
+		}
+		if checkpoint.LastModified != "" {
+			req.Header.Set("If-Modified-Since", checkpoint.LastModified)
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
+		if s.Fetcher == "browser" {
+			// http.Client wraps transport errors with the complete request URL.
+			// Worker/parse failures must not leak URL queries or page content.
+			if urlErr, ok := err.(*url.Error); ok {
+				err = urlErr.Err
+			}
+		}
 		return 0, err
 	}
 	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotModified && checkpoint.Initialized {
+	if s.Fetcher != "browser" && res.StatusCode == http.StatusNotModified && checkpoint.Initialized {
+		slog.Info("source checked", "source", s.ID, "transport", s.Transport, "result", "unchanged")
 		return 0, nil
 	}
 	if res.StatusCode != http.StatusOK {
@@ -209,11 +260,14 @@ func (c *Collector) poll(ctx context.Context, s Source, client *http.Client) (ti
 		candidates, err = ParseHTML(bytes.NewReader(body), res.Request.URL, include)
 	}
 	if err != nil {
+		if s.Fetcher == "browser" {
+			return 0, fmt.Errorf("could not parse browser response")
+		}
 		return 0, err
 	}
 	checkpoint.ETag = ""
 	checkpoint.LastModified = ""
-	if res.Request.URL.String() == req.URL.String() {
+	if s.Fetcher != "browser" && res.Request.URL.String() == req.URL.String() {
 		checkpoint.ETag = res.Header.Get("ETag")
 		checkpoint.LastModified = res.Header.Get("Last-Modified")
 	}
@@ -222,8 +276,9 @@ func (c *Collector) poll(ctx context.Context, s Source, client *http.Client) (ti
 		return 0, fmt.Errorf("persist checkpoint: %w", err)
 	}
 	for _, item := range items {
-		c.Hub.Publish(item)
+		c.publish(item)
 	}
+	slog.Info("source checked", "source", s.ID, "transport", s.Transport, "entries", len(candidates), "changed", len(items), "initial_baseline", !checkpoint.Initialized)
 	return 0, nil
 }
 

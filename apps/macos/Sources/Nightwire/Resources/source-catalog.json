@@ -1,0 +1,20 @@
+[
+  {
+    "id": "darkforums-access-market",
+    "name": "DarkForums · Access Market",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Access-Market",
+    "format": "mybb-index",
+    "category": "Onion forum · initial-access discussions",
+    "evidence": "Public text sampled on 2026-11-13",
+    "notes": "Public category worked with the Tor HTTP collector in a bounded trial; native collection was also observed. Start at this category, not the forum root. Backfill was incomplete, and access or availability can change. Source claims and operator identity are unverified."
+  },
+  {
+    "id": "rehub-public",
+    "name": "Rehub · Public forums (needs verification)",
+    "url": "http://rehubg7wpn5vuwttbzqrzm5epq6ta5mqm6cbfpn7wtukaskzte3ehcyd.onion/",
+    "format": "xenforo-index",
+    "category": "Onion forum · public discussions",
+    "evidence": "Historical browser collection; native HTTP collection unverified",
+    "notes": "Prior browser-backed collection saw public, partial, and restricted entries; later requests timed out. Nightwire's native app uses HTTP only, so this preset may fail on a challenge or layout mismatch. Hidden links and private areas remain inaccessible. This is an investigation starting point, not a working-source guarantee. Source claims and operator identity are unverified."
+  }
+]

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -14,21 +15,28 @@ import (
 )
 
 type Config struct {
-	Listen    string   `json:"listen"`
-	TokenEnv  string   `json:"token_env"`
-	StatePath string   `json:"state_path"`
-	TorProxy  string   `json:"tor_proxy"`
-	Sources   []Source `json:"sources"`
+	Listen            string   `json:"listen"`
+	TokenEnv          string   `json:"token_env"`
+	StatePath         string   `json:"state_path"`
+	TorProxy          string   `json:"tor_proxy"`
+	BrowserCommand    []string `json:"browser_command"`
+	BrowserProfileDir string   `json:"browser_profile_dir"`
+	Sources           []Source `json:"sources"`
 }
 
 type Source struct {
-	ID              string `json:"id"`
-	URL             string `json:"url"`
-	Transport       string `json:"transport"`
-	Format          string `json:"format"`
-	IntervalSeconds int    `json:"interval_seconds"`
-	IncludeURL      string `json:"include_url,omitempty"`
-	UserAgent       string `json:"user_agent,omitempty"`
+	ID                string          `json:"id"`
+	URL               string          `json:"url"`
+	Transport         string          `json:"transport"`
+	Fetcher           string          `json:"fetcher,omitempty"`
+	Format            string          `json:"format"`
+	IntervalSeconds   int             `json:"interval_seconds"`
+	IncludeURL        string          `json:"include_url,omitempty"`
+	UserAgent         string          `json:"user_agent,omitempty"`
+	MaxPagesPerPoll   int             `json:"max_pages_per_poll,omitempty"`
+	MaxThreads        int             `json:"max_threads,omitempty"`
+	RequestGapSeconds int             `json:"request_gap_seconds,omitempty"`
+	AlertFilter       AlertFilterSpec `json:"alert_filter,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -56,6 +64,12 @@ func (c *Config) Validate() error {
 	if c.TorProxy == "" {
 		c.TorProxy = "127.0.0.1:9050"
 	}
+	if c.BrowserProfileDir == "" {
+		c.BrowserProfileDir = "data/browser-profiles"
+	}
+	if len(c.BrowserCommand) > 0 && !filepath.IsAbs(c.BrowserCommand[0]) {
+		return fmt.Errorf("browser_command executable must be an absolute path")
+	}
 	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
@@ -72,6 +86,15 @@ func (c *Config) Validate() error {
 		if s.Transport != "direct" && s.Transport != "tor" {
 			return fmt.Errorf("%s: explicitly select transport direct or tor", s.ID)
 		}
+		if s.Fetcher == "" {
+			s.Fetcher = "http"
+		}
+		if s.Fetcher != "http" && s.Fetcher != "browser" {
+			return fmt.Errorf("%s: fetcher must be http or browser", s.ID)
+		}
+		if s.Fetcher == "browser" && (s.Transport != "tor" || len(c.BrowserCommand) == 0) {
+			return fmt.Errorf("%s: browser fetcher requires tor transport and browser_command", s.ID)
+		}
 		u, err := url.Parse(s.URL)
 		if err != nil || !webURL(u) || u.User != nil {
 			return fmt.Errorf("%s: expected an HTTP(S) URL without credentials", s.ID)
@@ -79,8 +102,22 @@ func (c *Config) Validate() error {
 		if onion(u.Hostname()) && s.Transport != "tor" {
 			return fmt.Errorf("%s: onion destinations require tor transport", s.ID)
 		}
-		if s.Format != "feed" && s.Format != "html" {
-			return fmt.Errorf("%s: format must be feed or html", s.ID)
+		if s.Format != "feed" && s.Format != "html" && !crawlFormat(s.Format) {
+			return fmt.Errorf("%s: format must be feed, html, xenforo, xenforo-index, mybb, or mybb-index", s.ID)
+		}
+		if crawlFormat(s.Format) {
+			if s.MaxPagesPerPoll == 0 {
+				s.MaxPagesPerPoll = 4
+			}
+			if s.MaxThreads == 0 {
+				s.MaxThreads = 256
+			}
+			if s.RequestGapSeconds == 0 {
+				s.RequestGapSeconds = 2
+			}
+			if s.MaxPagesPerPoll < 1 || s.MaxPagesPerPoll > 32 || s.MaxThreads < 1 || s.MaxThreads > 4096 || s.RequestGapSeconds < 1 || s.RequestGapSeconds > 60 {
+				return fmt.Errorf("%s: crawl bounds require max_pages_per_poll 1..32, max_threads 1..4096, request_gap_seconds 1..60", s.ID)
+			}
 		}
 		if s.IntervalSeconds == 0 {
 			s.IntervalSeconds = 60
@@ -96,7 +133,10 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("%s: include_url: %w", s.ID, err)
 			}
 		}
-		if s.UserAgent == "" {
+		if _, err := compileAlertFilter(s.AlertFilter); err != nil {
+			return fmt.Errorf("%s: %w", s.ID, err)
+		}
+		if s.UserAgent == "" && s.Fetcher != "browser" {
 			s.UserAgent = "ForumWatch/0.1 (defensive monitoring)"
 		}
 	}
