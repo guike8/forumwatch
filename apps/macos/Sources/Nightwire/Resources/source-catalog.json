@@ -4,17 +4,153 @@
     "name": "DarkForums · Access Market",
     "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Access-Market",
     "format": "mybb-index",
+    "status": "ready",
+    "checked_at": "2026-11-13",
     "category": "Onion forum · initial-access discussions",
-    "evidence": "Public text sampled on 2026-11-13",
-    "notes": "Public category worked with the Tor HTTP collector in a bounded trial; native collection was also observed. Start at this category, not the forum root. Backfill was incomplete, and access or availability can change. Source claims and operator identity are unverified."
+    "evidence": "Tor HTTP recheck returned 200; current parser accepted 20 thread links and 2 readable sampled posts",
+    "notes": "Earlier bounded collector/native trials succeeded; a fresh recheck also passed after one transient Tor connection failure. One thread page was sampled, not complete category coverage. Use this category, not the forum root, which exceeds discovery bounds. Earlier backfill was incomplete. Source claims and operator identity are unverified. No attachments or advertised access are retrieved."
+  },
+  {
+    "id": "darkforums-web-vulnerabilities",
+    "name": "DarkForums · Web application vulnerabilities",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Web-application-vulnerabilities",
+    "format": "mybb-index",
+    "status": "ready",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · web security discussions",
+    "evidence": "Tor HTTP 200 listing; current parser accepted 20 thread links and 10 readable sampled posts",
+    "notes": "One public thread page was sampled, not all discovered threads or historical pages. Post IDs, author, source timestamps and text passed the current MyBB parser. Availability and guest access can change. This is another category on DarkForums, not a separate forum community. Source claims and operator identity are unverified; posted code is not executed."
+  },
+  {
+    "id": "darkforums-software-vulnerabilities",
+    "name": "DarkForums · Software vulnerabilities / exploitation",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Software-Vulnerabilities-Exploitation",
+    "format": "mybb-index",
+    "status": "ready",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · software vulnerability discussions",
+    "evidence": "Tor HTTP 200 listing; current parser accepted 20 thread links and 10 readable sampled posts",
+    "notes": "One public thread page was sampled; this does not establish complete category coverage or validate any vulnerability claim. Post IDs, author, source timestamps and text passed the current MyBB parser. This is another category on DarkForums, not a separate community. Operator identity is unverified. No exploit execution or attachment downloads."
+  },
+  {
+    "id": "darkforums-malware",
+    "name": "DarkForums · Malware",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Malware",
+    "format": "mybb-index",
+    "status": "ready",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · malware discussions and advertisements",
+    "evidence": "Tor HTTP 200 listing; current parser accepted 20 thread links and 6 readable sampled posts",
+    "notes": "Defensive observation of public text only. One thread page was sampled; neither advertised capabilities nor seller claims were verified. Post IDs, author, source timestamps and text passed the current MyBB parser. This is another DarkForums category, not a separate community. Operator identity is unverified. No purchases, payload downloads or execution."
+  },
+  {
+    "id": "darkforums-exploit-pocs",
+    "name": "DarkForums · Exploit & POCs",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Exploit-POCs",
+    "format": "mybb-index",
+    "status": "ready",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · exploit and proof-of-concept discussions",
+    "evidence": "Tor HTTP 200 listing; current parser accepted 20 thread links and 5 readable sampled posts",
+    "notes": "One public thread page was sampled. Post IDs, author, source timestamps and text passed the current MyBB parser; linked archives and exploit code were not downloaded or executed. This is another DarkForums category, not a separate community. Coverage is bounded, and source claims and operator identity remain unverified."
+  },
+  {
+    "id": "darkforums-hacking-tools",
+    "name": "DarkForums · Hacking Tools",
+    "url": "http://darkfoxaqhfpxkrbt7vxns2z2u2k72sgmqbzeorupaiottw3ecm2wgyd.onion/Forum-Hacking-Tools",
+    "format": "mybb-index",
+    "status": "unsupported",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · tools discussions · research only",
+    "evidence": "Tor HTTP 200 listing parsed; sampled thread failed with no recognized MyBB content",
+    "notes": "Twenty thread links were discovered, but the sampled thread was rejected by the current post parser. A successful listing is not working post collection. Kept research-only until the unsupported or gated content is understood and parser coverage is verified. This is another DarkForums category, not a separate community. Source claims and operator identity are unverified."
+  },
+  {
+    "id": "breachforums-login",
+    "name": "BreachForums · Guest access blocked",
+    "url": "http://breach22uu7wb4tnc4ghq22e6umgpu5atxqf4ayckmclm7cgllljq4qd.onion/",
+    "format": "xenforo-index",
+    "status": "login_required",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · account required · research only",
+    "evidence": "Guest root returned HTTP 403 and a XenForo login form",
+    "notes": "No readable guest posts or authenticated collector session were established. Nightwire has no authenticated-session setup for this entry and does not register or bypass verification from the catalog. The responding site's branding does not authenticate continuity with historic BreachForums operators. This is not working monitoring coverage."
   },
   {
     "id": "rehub-public",
-    "name": "Rehub · Public forums (needs verification)",
+    "name": "Rehub · Public forums",
     "url": "http://rehubg7wpn5vuwttbzqrzm5epq6ta5mqm6cbfpn7wtukaskzte3ehcyd.onion/",
     "format": "xenforo-index",
-    "category": "Onion forum · public discussions",
-    "evidence": "Historical browser collection; native HTTP collection unverified",
-    "notes": "Prior browser-backed collection saw public, partial, and restricted entries; later requests timed out. Nightwire's native app uses HTTP only, so this preset may fail on a challenge or layout mismatch. Hidden links and private areas remain inaccessible. This is an investigation starting point, not a working-source guarantee. Source claims and operator identity are unverified."
+    "status": "unavailable",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · native HTTP access unverified · research only",
+    "evidence": "Latest Tor HTTP request returned 403 Forbidden; older browser collection saw some public text",
+    "notes": "Historical browser-backed collection observed public, partial and restricted entries, but that is not proof of current native HTTP access. The native app uses HTTP only. This bounded check does not establish why access failed or that the service is permanently offline. Hidden links/private areas remain restricted. Source claims and operator identity are unverified."
+  },
+  {
+    "id": "tierone-adapter-needed",
+    "name": "T1erOne · Advertised destination",
+    "url": "http://tieronemkfevyizxcnt355agysp2iemvhon6iyclwrc7yuc7oszgzrid.onion/",
+    "format": null,
+    "status": "unsupported",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · custom React/Tiptap layout · research only",
+    "evidence": "Bounded browser check saw one public article; HTTP root was an application shell",
+    "notes": "Neither current MyBB nor XenForo adapter matches. A dedicated adapter, reliable timestamp handling and verified post permalinks are needed. One readable article does not establish full access. The destination was advertised by an older listed site; operator identity and continuity are not authenticated. No external references, downloads or posted code were followed or executed."
+  },
+  {
+    "id": "banished-adapter-needed",
+    "name": "Banished · Approval-gated Flarum",
+    "url": "http://gcxfuxmahqduoenozfkgnfywojk6xvf7y3zqjg2nl6chlqmkiacxnwid.onion/",
+    "format": null,
+    "status": "unsupported",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · Flarum / account approval · research only",
+    "evidence": "Browser index rendered; sampled rules post required signup and account approval",
+    "notes": "Zero readable underlying post bodies were verified. The visible approval placeholder is not post content. Flarum requires a new adapter and explicit gate detection; membership access is a separate unresolved requirement. No registration or approval bypass was attempted. Source claims and operator identity are unverified."
+  },
+  {
+    "id": "pwnforums-challenge",
+    "name": "PwnForums · Verification blocked",
+    "url": "http://pwnfrm7rbf6kyerigxi677lcz5ifmoagdbqqknwdu2by27wfdst5qmqd.onion/",
+    "format": null,
+    "status": "challenge",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · browser verification · research only",
+    "evidence": "HTTP returned a verification page; bounded browser check failed",
+    "notes": "No forum post bodies were retrieved. HTTP 200 on a verification page is not successful collection. No adapter has been verified and no challenge bypass is included. Operator identity and continuity are unverified."
+  },
+  {
+    "id": "xss-mx-challenge",
+    "name": "XSS.MX · Verification blocked",
+    "url": "https://xssac4uqtauxumkktnp3knz2ag7qcb3efmb66mokjg5fcqhzvilgwfid.onion/",
+    "format": null,
+    "status": "challenge",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · browser validation · research only",
+    "evidence": "HTTP showed browser validation; bounded browser check failed",
+    "notes": "No readable forum bodies were verified. The layout and a supported collector adapter remain unverified. No repeated challenge attempts or bypass are part of the catalog. Operator identity and continuity with similarly named communities are not authenticated."
+  },
+  {
+    "id": "spear-availability",
+    "name": "Spear · Availability unconfirmed",
+    "url": "http://spear4h2potiyk43oilufhuq2jqbioyaizcs7xttlyw75s5ykwxpxlid.onion/",
+    "format": null,
+    "status": "unavailable",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · connection timeout · research only",
+    "evidence": "Bounded Tor HTTP check timed out before a response body",
+    "notes": "A 45-second connection timeout does not prove the service is dead. No layout, readable posts or adapter were verified. A valid onion checksum is not operator authentication. No mirror was substituted or automatically trusted."
+  },
+  {
+    "id": "zeroforums-availability",
+    "name": "ZeroForums · Availability unconfirmed",
+    "url": "http://hfyqskk6cg6jc4ybmauecyntrrtw6pq3zst3pmila2wfmy6tbsm5dsyd.onion/",
+    "format": null,
+    "status": "unavailable",
+    "checked_at": "2026-11-13",
+    "category": "Onion forum · connection timeout · research only",
+    "evidence": "Bounded Tor HTTP check timed out before a response body",
+    "notes": "A 45-second connection timeout does not prove the service is dead. No layout, readable posts or adapter were verified. A valid onion checksum is not operator authentication. No mirror was substituted or automatically trusted."
   }
 ]

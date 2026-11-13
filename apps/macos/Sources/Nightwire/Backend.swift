@@ -25,7 +25,7 @@ final class AppModel: ObservableObject {
     private var statusTask: Task<Void, Never>?
     private var processTask: Task<Void, Never>?
     private var index = ItemIndex()
-    private var smokeStarted = false
+    private(set) var smokeStarted = false
 
     init(storageRoot: URL? = nil, requireEmptyRoot: Bool = false, startupError: String? = nil) {
         do {
@@ -351,10 +351,38 @@ final class AppModel: ObservableObject {
             guard !catalog.isEmpty, sources.isEmpty, phase == .stopped else {
                 throw ClientError.message("Bundled source catalog is missing or changed monitoring state.")
             }
-            for entry in catalog { _ = try entry.makeSource().validated(replacing: nil) }
+            for entry in catalog {
+                if entry.canConfigure {
+                    _ = try entry.makeSource().validated(replacing: nil)
+                } else {
+                    var rejected = false
+                    do { _ = try entry.makeSource() } catch { rejected = true }
+                    guard rejected else { throw ClientError.message("A research-only catalog entry constructed a source.") }
+                }
+            }
             NotificationCenter.default.post(name: .nightwireAddSource, object: nil)
             try await Task.sleep(nanoseconds: 700_000_000)
             try captureOwnedView(in: resultDirectory, name: "source-editor.png", sheet: true)
+            guard let ready = catalog.first(where: \.canConfigure),
+                  let research = catalog.first(where: { $0.status == .loginRequired }) else {
+                throw ClientError.message("Smoke catalog needs configurable and login-required entries.")
+            }
+            let beforeBrowsing = try storage.map { try Data(contentsOf: $0.configURL) }
+            for (id, expectedDraft, image) in [(ready.id, true, "catalog-ready.png"),
+                                               (research.id, false, "catalog-research.png"),
+                                               ("", true, "catalog-custom.png")] {
+                let selection = CatalogSmokeSelection(id: id)
+                NotificationCenter.default.post(name: .nightwireSmokeCatalog, object: selection)
+                guard selection.canSave == expectedDraft, selection.hasDraft == expectedDraft else {
+                    throw ClientError.message("Catalog selection did not enforce draft/Save readiness for \(id).")
+                }
+                try await Task.sleep(nanoseconds: 400_000_000)
+                try captureOwnedView(in: resultDirectory, name: image, sheet: true)
+            }
+            guard sources.isEmpty, phase == .stopped, process == nil,
+                  try storage.map({ try Data(contentsOf: $0.configURL) }) == beforeBrowsing else {
+                throw ClientError.message("Browsing the catalog changed configuration or monitoring state.")
+            }
         } catch { failure = error.localizedDescription }
         NotificationCenter.default.post(name: .nightwireDismissEditor, object: nil)
         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -364,7 +392,7 @@ final class AppModel: ObservableObject {
             "error": failure ?? "",
             "child_pids": pids,
             "sources": sources.count,
-            "checks": ["window widths 600/756/1250", "bundled child readiness/PID", "bearer authentication", "SSE before snapshot", "empty items/status", "owned stop and restart", "invalid RE2 preserves running child/config", "filter preference persistence and custom-rule preservation", "stopped filter saves never start collection", "native Filters panel", "bundled source catalog loads without configuring sources"]
+            "checks": ["window widths 600/756/1250", "bundled child readiness/PID", "bearer authentication", "SSE before snapshot", "empty items/status", "owned stop and restart", "invalid RE2 preserves running child/config", "filter preference persistence and custom-rule preservation", "stopped filter saves never start collection", "native Filters panel", "bundled source catalog loads without configuring sources", "native ready/research/custom catalog draft and Save guards"]
         ]
         do {
             // A failed empty-directory guard must not write into an existing profile.

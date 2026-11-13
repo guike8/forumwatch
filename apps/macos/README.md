@@ -24,13 +24,20 @@ The build script creates and ad-hoc signs `apps/macos/build/Nightwire.app`, bund
 
 Nothing is monitored by default, and opening the app never starts monitoring automatically. Supported formats: `feed`, `html`, `xenforo`, `xenforo-index`, `mybb`, `mybb-index`. The HTTP fetcher and Tor transport are the only options. Tor must already expose a local SOCKS listener (default `127.0.0.1:9050`); Nightwire does not launch Tor or fall back to direct requests.
 
-The bundled catalog is plain JSON at `Sources/Nightwire/Resources/source-catalog.json`, so another interface (including a future Telegram bot) can consume the same entries. Each entry includes its category, evidence label, and access limitations. A preset fills only the Add Source draft: review it and click **Save** to configure it. Nothing is automatically imported, enabled, checked for availability, or sent to Telegram. Already-configured URL/format presets are omitted from the picker. Every addition gets a fresh source ID and the existing bounded Tor-only defaults; presets do not enable filters. Evidence describes past checks, not current health or complete access.
+The bundled catalog is plain JSON at `Sources/Nightwire/Resources/source-catalog.json`, so another interface (including a future Telegram bot) can consume the same entries. Each record includes a `status`, `checked_at` evidence date, category, evidence, access limitations, and an optional collector `format`. Evidence dates describe completed checks, not live health or verified operator identities. The catalog is bundled, not downloaded or checked against remote sites at startup.
 
-Initial entries:
-- **DarkForums · Access Market** (`mybb-index`): public text previously collected with the Tor HTTP collector; category-scoped because the root exceeds discovery bounds.
-- **Rehub · Public forums** (`xenforo-index`, **needs verification**): historical browser-backed observations only; native HTTP collection is not verified and may fail. Hidden links/private areas remain restricted.
+- **Ready**: a public listing and sampled post text passed the current HTTP parser through Tor. This is bounded sampling, not complete coverage.
+- **Needs verification**: a supported format is identified but current collection still needs verification. Review the limitations before configuring it.
+- **Login required**, **Unsupported**, **Challenge**, **Unavailable**: research-only entries. Their details and **Copy link** remain available, but they have no editable source draft and cannot be saved from the catalog. Unknown adapters have no format; they never fall back to a guessed parser. Unavailable means a bounded check failed, not that the site is permanently offline.
 
-Unsupported/challenged/unverified directory leads are not silently presented as working presets. The catalog is bundled, not downloaded at startup.
+Only Ready/Needs verification records with a supported format can fill an Add Source draft. Review it and click **Save** to opt in. Already-configured URL/format presets are omitted from the picker. Every addition gets a fresh source ID and the existing bounded Tor-only defaults; presets do not enable filters. Nothing is automatically imported, enabled, signed into, or sent to Telegram. Browsing never starts monitoring, and links are only copied, not opened.
+
+The catalog currently has **14 entries across nine researched forum communities**, not 14 working forums:
+
+- **Five Ready DarkForums scopes** (`mybb-index`): Access Market, Web application vulnerabilities, Software vulnerabilities / exploitation, Malware, and Exploit & POCs. Each listing and one thread page passed current parser checks over Tor. This is one community, sampled within category scopes rather than its oversized root.
+- **Nine research-only entries**: DarkForums Hacking Tools' sampled thread failed content parsing; BreachForums is login-required; Rehub's latest native HTTP check returned 403 despite older browser-backed public observations; T1erOne and Banished need adapters (Banished also requires approval); PwnForums and XSS.MX remained challenged; Spear and ZeroForums failed bounded availability checks.
+
+Research-only entries do **not** increase working collection coverage. Familiar names and directory-listed onion addresses do not authenticate operator continuity.
 
 Open **Filters**, choose a source, switch on **Quiet account/combo sales** and optionally **Readable posts only**, then click **Apply**. Changes to multiple selected sources are saved together; **Cancel** discards the draft. The toolbar filter icon is filled when any source has active rules. Filters are also available when adding/editing a source.
 
@@ -63,7 +70,7 @@ apps/macos/build/Nightwire.app/Contents/MacOS/Nightwire --data-dir /absolute/pri
 apps/macos/build/Nightwire.app/Contents/MacOS/Nightwire --smoke-test /absolute/new-empty-smoke-dir
 ```
 
-The smoke mode also verifies invalid RE2 rules preserve a running child/configuration. While stopped, it saves a synthetic `example.invalid` source **only in its isolated profile**, checks filter preference persistence/custom-rule preservation, captures `filter-settings.png`, and removes the fixture. That source is never collected. The smoke mode checks actual window widths of 600, 756, and 1250 points and saves matching `window-*.png` images, plus `empty-window.png` and `source-editor.png`, using only app-owned `NSView` bitmap capture. **These are partial content captures:** native/layer-backed sidebar material, controls, toolbar, or titlebar may be missing. They do not establish complete on-screen visual correctness and do not capture the desktop or other applications. No screen-recording/accessibility permission bypass is used.
+The smoke mode also verifies invalid RE2 rules preserve a running child/configuration. While stopped, it saves a synthetic `example.invalid` source **only in its isolated profile**, checks filter preference persistence/custom-rule preservation, captures `filter-settings.png`, and removes the fixture. That source is never collected. It then drives the real Add Source draft-selection handler through Ready, login-required research-only, and Custom entries, checking draft/Save readiness and unchanged configuration with zero sources; captures are `catalog-ready.png`, `catalog-research.png`, and `catalog-custom.png`. It never saves a catalog source. The smoke mode checks actual window widths of 600, 756, and 1250 points and saves matching `window-*.png` images, plus `empty-window.png` and `source-editor.png`, using only app-owned `NSView` bitmap capture. **These are partial content captures:** native/layer-backed sidebar material, controls, toolbar, or titlebar may be missing. They do not establish complete on-screen visual correctness and do not capture the desktop or other applications. No screen-recording/accessibility permission bypass is used.
 
 ## Current limits
 

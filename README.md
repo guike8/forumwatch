@@ -4,7 +4,7 @@ Native macOS monitoring app, backed by the ForumWatch Go collector. The CLI and 
 
 First-party defensive forum monitoring in Go: collect from selected public or onion pages, persist new/changed entries, and print immediate terminal alerts with original-source links. SSE and private RSS are optional outputs, not the primary product.
 
-**Prototype, not a deployed intelligence service.** No active target configuration or credentials are bundled. The native app includes optional source-catalog presets with historical evidence and limitations; nothing is added or monitored automatically. Adapters cover RSS/Atom, static HTML links, and compatible XenForo/MyBB forum-index discovery, thread posts and forward pagination. The optional persistent Tor browser transport has retrieved a public Rehub onion reply; this is not coverage of its private areas or exploit trading. See [research and collection priorities](docs/RESEARCH.md).
+**Prototype, not a deployed intelligence service.** No active target configuration or credentials are bundled. The native app includes an optional source catalog with evidence dates and explicit Ready/Needs verification versus research-only statuses (login-required, unsupported, challenged, unavailable); nothing is added or monitored automatically. Multiple category presets from one forum are scopes, not distinct working communities. Adapters cover RSS/Atom, static HTML links, and compatible XenForo/MyBB forum-index discovery, thread posts and forward pagination. The optional persistent Tor browser transport has retrieved a public Rehub onion reply; this is not coverage of its private areas or exploit trading. See [research and collection priorities](docs/RESEARCH.md).
 
 ## Why SSE rather than just RSS?
 

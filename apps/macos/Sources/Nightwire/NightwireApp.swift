@@ -82,6 +82,15 @@ extension Notification.Name {
     static let nightwireAddSource = Notification.Name("NightwireAddSource")
     static let nightwireFilters = Notification.Name("NightwireFilters")
     static let nightwireDismissEditor = Notification.Name("NightwireDismissEditor")
+    static let nightwireSmokeCatalog = Notification.Name("NightwireSmokeCatalog")
+}
+
+@MainActor
+final class CatalogSmokeSelection {
+    let id: String
+    var canSave: Bool?
+    var hasDraft: Bool?
+    init(id: String) { self.id = id }
 }
 
 private struct EditorSelection: Identifiable {
@@ -400,7 +409,7 @@ private struct SourceEditor: View {
     @ObservedObject var model: AppModel
     let original: Source?
     @Environment(\.dismiss) private var dismiss
-    @State private var draft: Source
+    @State private var draft: Source?
     @State private var proxy: String
     @State private var saving = false
     @State private var error: String?
@@ -414,61 +423,96 @@ private struct SourceEditor: View {
         _draft = State(initialValue: original ?? Source())
         _proxy = State(initialValue: model.configuration?.torProxy ?? "127.0.0.1:9050")
     }
-    private var changesBinding: Bool { original.map { $0.url != draft.url || $0.format != draft.format } ?? false }
+    private var changesBinding: Bool {
+        guard let original, let draft else { return false }
+        return original.url != draft.url || original.format != draft.format
+    }
+    private var editableDraft: Binding<Source>? {
+        guard let snapshot = draft else { return nil }
+        // SwiftUI may read removed controls during a transition. Avoid the
+        // force-unwrapping optional binding, and ignore stale control writes.
+        return Binding(get: {
+            if let current = draft, current.id == snapshot.id { return current }
+            return snapshot
+        }, set: { updated in
+            guard draft?.id == snapshot.id else { return }
+            draft = updated
+        })
+    }
+    private var canSave: Bool {
+        draft != nil && (original != nil || presetID.isEmpty || preset?.canConfigure == true)
+    }
+    private func selectPreset(_ id: String) {
+        presetID = id
+        draft = nil
+        error = nil
+        if id.isEmpty { draft = Source(); return }
+        do {
+            guard let preset else { throw ClientError.message("Choose a catalog entry or Custom source.") }
+            if preset.canConfigure { draft = try preset.makeSource() }
+        } catch { self.error = error.localizedDescription }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(original == nil ? "Add source" : "Edit source").font(.title2).padding(20)
             Form {
                 if original == nil {
                     Section("Source catalog") {
-                        Picker("Starter source", selection: $presetID) {
+                        Picker("Starter source", selection: Binding(get: { presetID }, set: selectPreset)) {
                             Text("Custom source").tag("")
                             ForEach(catalog.filter { !$0.isConfigured(in: model.sources) }) { entry in
-                                Text(verbatim: entry.name).tag(entry.id)
+                                Text(verbatim: entry.name + " · " + entry.statusLabel).tag(entry.id)
                             }
                         }
                         .accessibilityIdentifier("source.catalog")
-                        .onChange(of: presetID) { _, id in
-                            draft = catalog.first { $0.id == id }?.makeSource() ?? Source()
-                        }
                         if let preset {
+                            Text(verbatim: preset.statusLabel + " · Checked " + preset.checkedAt)
+                                .font(.caption).fontWeight(.semibold)
                             Text(verbatim: preset.category + " · " + preset.evidence)
                                 .font(.caption).foregroundStyle(.secondary)
                             Text(verbatim: preset.notes).font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: preset.url).font(.caption).textSelection(.enabled)
+                            Button("Copy link") { copyText(preset.url) }
+                            if !preset.canConfigure {
+                                Text(verbatim: "Research only · " + preset.status.guidance)
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                         }
                         if let catalogError { Text(verbatim: catalogError).font(.caption).foregroundStyle(.orange) }
-                        Text("Presets only fill this draft. Already-added presets are omitted. Review the URL and settings, then Save to add one. Availability can change; no login or access bypass is included. Public-web sources also use Tor.")
+                        Text("Configurable presets only fill a draft; research-only entries cannot be saved. Already-added presets are omitted. Review the evidence and settings, then Save to opt in. Browsing never starts monitoring. Links are only copied, never opened. Public-web sources also use Tor.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Section("Source") {
-                    TextField("URL", text: $draft.url)
-                    Picker("Format", selection: $draft.format) {
-                        ForEach(Source.formats, id: \.self) { Text(verbatim: $0).tag($0) }
+                if let draft = editableDraft {
+                    Section("Source") {
+                        TextField("URL", text: draft.url)
+                        Picker("Format", selection: draft.format) {
+                            ForEach(Source.formats, id: \.self) { Text(verbatim: $0).tag($0) }
+                        }
+                        TextField("Poll interval (seconds)", value: draft.intervalSeconds, format: .number)
+                        TextField("Include URL (Go regex)", text: draft.includeURL)
+                        Text("10–86400 seconds. HTML requires an include URL regex to select post links.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if changesBinding {
+                            Text("Changing URL or format creates a new source ID and a fresh baseline. Existing crawl state is not reused.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
                     }
-                    TextField("Poll interval (seconds)", value: $draft.intervalSeconds, format: .number)
-                    TextField("Include URL (Go regex)", text: $draft.includeURL)
-                    Text("10–86400 seconds. HTML requires an include URL regex to select post links.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if changesBinding {
-                        Text("Changing URL or format creates a new source ID and a fresh baseline. Existing crawl state is not reused.")
-                            .font(.caption).foregroundStyle(.orange)
+                    Section("Transport") {
+                        LabeledContent("Route", value: "Tor only · HTTP fetcher")
+                        TextField("Local Tor SOCKS address", text: $proxy)
+                        Text("Default 127.0.0.1:9050. Tor must already be running. No direct fallback, browser automation, or Tor service is launched.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                }
-                Section("Transport") {
-                    LabeledContent("Route", value: "Tor only · HTTP fetcher")
-                    TextField("Local Tor SOCKS address", text: $proxy)
-                    Text("Default 127.0.0.1:9050. Tor must already be running. No direct fallback, browser automation, or Tor service is launched.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("Alert filters") {
-                    AlertFilterControls(filter: $draft.alertFilter)
-                }
-                if draft.format.hasPrefix("xenforo") || draft.format.hasPrefix("mybb") {
-                    Section("Bounded crawling") {
-                        Stepper("Pages per poll: \(draft.maxPagesPerPoll)", value: $draft.maxPagesPerPoll, in: 1...32)
-                        Stepper("Tracked threads: \(draft.maxThreads)", value: $draft.maxThreads, in: 1...4096)
-                        Stepper("Request gap: \(draft.requestGapSeconds) seconds", value: $draft.requestGapSeconds, in: 1...60)
+                    Section("Alert filters") {
+                        AlertFilterControls(filter: draft.alertFilter)
+                    }
+                    if draft.wrappedValue.format.hasPrefix("xenforo") || draft.wrappedValue.format.hasPrefix("mybb") {
+                        Section("Bounded crawling") {
+                            Stepper("Pages per poll: \(draft.wrappedValue.maxPagesPerPoll)", value: draft.maxPagesPerPoll, in: 1...32)
+                            Stepper("Tracked threads: \(draft.wrappedValue.maxThreads)", value: draft.maxThreads, in: 1...4096)
+                            Stepper("Request gap: \(draft.wrappedValue.requestGapSeconds) seconds", value: draft.requestGapSeconds, in: 1...60)
+                        }
                     }
                 }
                 Section {
@@ -483,6 +527,20 @@ private struct SourceEditor: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
                 Button("Save") {
+                    guard canSave, let draft else {
+                        error = "This entry is research-only. Choose a configurable entry or Custom source."
+                        return
+                    }
+                    // Picker item disabling is not enforced on macOS. Recheck the
+                    // selected record here as well as guarding draft construction.
+                    if original == nil, !presetID.isEmpty {
+                        do {
+                            guard let preset, !preset.isConfigured(in: model.sources) else {
+                                throw ClientError.message("This entry is already configured or no longer available. Choose another source.")
+                            }
+                            _ = try preset.makeSource()
+                        } catch { self.error = error.localizedDescription; return }
+                    }
                     saving = true
                     Task {
                         do {
@@ -490,12 +548,19 @@ private struct SourceEditor: View {
                             dismiss()
                         } catch { self.error = error.localizedDescription; saving = false }
                     }
-                }.keyboardShortcut(.defaultAction).disabled(saving)
+                }.keyboardShortcut(.defaultAction).disabled(saving || !canSave)
             }.padding(16)
         }.frame(width: 620, height: 740).interactiveDismissDisabled(saving)
             .onAppear {
                 do { catalog = try SourceCatalog.load() }
                 catch { catalogError = error.localizedDescription }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nightwireSmokeCatalog)) { notification in
+                guard model.smokeStarted, original == nil,
+                      let selection = notification.object as? CatalogSmokeSelection else { return }
+                selectPreset(selection.id)
+                selection.canSave = canSave
+                selection.hasDraft = draft != nil
             }
     }
 }

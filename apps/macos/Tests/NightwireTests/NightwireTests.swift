@@ -143,9 +143,22 @@ private func expectThrows<T>(_ value: @autoclosure () throws -> T, _ message: St
         expectEqual(model.phase, .stopped)
         expectTrue(model.sources.isEmpty)
     }
+    private func catalogRecord(status: String = "ready", format: Any = "mybb-index", id: String = "fixture", url: String = "https://example.invalid/forum") -> [String: Any] {
+        ["id": id, "name": "Fixture", "url": url, "format": format,
+         "category": "Public forum", "evidence": "Historical public text check", "notes": "Unverified source claims.",
+         "status": status, "checked_at": "2024-02-29"]
+    }
+    private func catalogData(_ records: [[String: Any]]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: records)
+    }
+    private func catalogEntry(_ record: [String: Any]) throws -> CatalogSource {
+        try JSONDecoder().decode(CatalogSource.self, from: JSONSerialization.data(withJSONObject: record))
+    }
     @Test func testBundledCatalogHasUniqueValidatedTorOnlyPresets() throws {
         let catalog = try SourceCatalog.load()
         expectTrue(catalog.count >= 2)
+        expectTrue(catalog.contains { $0.status == .ready && $0.canConfigure })
+        expectTrue(catalog.contains { !$0.canConfigure })
         expectEqual(Set(catalog.map(\.id)).count, catalog.count)
         expectEqual(Set(catalog.map(\.url)).count, catalog.count)
         for entry in catalog {
@@ -153,8 +166,14 @@ private func expectThrows<T>(_ value: @autoclosure () throws -> T, _ message: St
             expectFalse(entry.category.isEmpty)
             expectFalse(entry.evidence.isEmpty)
             expectFalse(entry.notes.isEmpty)
+            expectFalse(entry.checkedAt.isEmpty)
+            expectNoThrow(try entry.validate())
+            guard entry.canConfigure else {
+                expectThrows(try entry.makeSource(), entry.id)
+                continue
+            }
             let first = try entry.makeSource().validated(replacing: nil)
-            let second = entry.makeSource()
+            let second = try entry.makeSource()
             expectNotEqual(first.id, second.id)
             expectEqual(first.url, entry.url)
             expectEqual(first.format, entry.format)
@@ -166,8 +185,8 @@ private func expectThrows<T>(_ value: @autoclosure () throws -> T, _ message: St
         }
     }
     @Test func testCatalogDetectsConfiguredBindingsWithoutReplacingSettings() throws {
-        let entry = try require(SourceCatalog.load().first)
-        var source = entry.makeSource()
+        let entry = try catalogEntry(catalogRecord())
+        var source = try entry.makeSource()
         source.url += "/"
         source.alertFilter = AlertFilter(excludeTitle: "custom", quietSales: true)
         expectTrue(entry.isConfigured(in: [source]))
@@ -181,10 +200,122 @@ private func expectThrows<T>(_ value: @autoclosure () throws -> T, _ message: St
         let model = AppModel(storageRoot: root)
         let path = root.appendingPathComponent("config.json")
         let before = try Data(contentsOf: path)
-        for entry in try SourceCatalog.load() { _ = entry.makeSource() }
+        for entry in try SourceCatalog.load() {
+            _ = entry.statusLabel
+            _ = entry.notes
+            _ = entry.url
+            expectFalse(entry.isConfigured(in: model.sources))
+            if entry.canConfigure { _ = try entry.makeSource() }
+            else { expectThrows(try entry.makeSource()) }
+        }
         expectTrue(model.sources.isEmpty)
+        expectTrue(model.items.isEmpty)
+        expectTrue(model.statuses.isEmpty)
+        expectEqual(model.connection, "Offline")
         expectEqual(model.phase, .stopped)
         expectEqual(try Data(contentsOf: path), before)
+        expectFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("state.json").path))
+    }
+    @Test func testCatalogReadinessAllowsOnlyExplicitSupportedEntries() throws {
+        for status in CatalogStatus.allCases {
+            for format in ["mybb-index", NSNull(), "unknown-collector"] as [Any] {
+                let entry = try catalogEntry(catalogRecord(status: status.rawValue, format: format))
+                let allowed = status.permitsConfiguration && (format as? String) == "mybb-index"
+                expectEqual(entry.canConfigure, allowed)
+                expectFalse(entry.statusLabel.isEmpty)
+                if allowed {
+                    let first = try entry.makeSource()
+                    let second = try entry.makeSource()
+                    expectNotEqual(first.id, second.id)
+                    expectNotEqual(first.id, entry.id)
+                    expectEqual(first.format, "mybb-index")
+                    expectEqual(first.url, entry.url)
+                    expectEqual(first.transport, "tor")
+                    expectEqual(first.fetcher, "http")
+                    expectFalse(first.alertFilter.isActive)
+                } else {
+                    do {
+                        _ = try entry.makeSource()
+                        Issue.record("Research-only or invalid entry constructed a source")
+                    } catch {
+                        expectTrue(error.localizedDescription.contains(status.permitsConfiguration ? "supported format" : "research-only"))
+                    }
+                }
+            }
+        }
+        var missingFormat = catalogRecord(status: "unsupported")
+        missingFormat.removeValue(forKey: "format")
+        let entry = try catalogEntry(missingFormat)
+        expectNil(entry.format)
+        expectFalse(entry.canConfigure)
+        expectThrows(try entry.makeSource())
+    }
+    @Test func testCatalogRejectsUnknownOrMissingReadinessMetadata() throws {
+        for status in ["unknown", "READY", "", " ready", "needs-verification"] {
+            expectThrows(try SourceCatalog.decode(catalogData([catalogRecord(status: status)])))
+            expectThrows(try catalogEntry(catalogRecord(status: status)))
+        }
+        for field in ["status", "checked_at"] {
+            var record = catalogRecord()
+            record.removeValue(forKey: field)
+            expectThrows(try SourceCatalog.decode(catalogData([record])))
+            record[field] = NSNull()
+            expectThrows(try SourceCatalog.decode(catalogData([record])))
+        }
+    }
+    @Test func testCatalogIntegrityRejectsUnsafeURLsInvalidDatesAndDuplicateBindings() throws {
+        for url in ["file:///tmp/forum", "ftp://example.invalid/forum", "https:///forum", "https://user@example.invalid/",
+                    "https://user:password@example.invalid/", "https://example.invalid:0/", "https://example.invalid:65536/",
+                    " https://example.invalid/", "https://example.invalid/\n", "https://example.invalid/a b"] {
+            let record = catalogRecord(url: url)
+            expectThrows(try SourceCatalog.decode(catalogData([record])), url)
+            let entry = try catalogEntry(record)
+            expectFalse(entry.canConfigure)
+            expectThrows(try entry.makeSource(), url)
+        }
+        for date in ["2023-02-29", "2024-02-30", "2026-13-01", "2026-11-31", "2026-1-01", "2026-11-13T12:00:00Z", "", "0000-01-01"] {
+            var record = catalogRecord(); record["checked_at"] = date
+            expectThrows(try SourceCatalog.decode(catalogData([record])), date)
+            expectThrows(try catalogEntry(record).makeSource(), date)
+        }
+        for field in ["id", "name", "category", "evidence", "notes"] {
+            var record = catalogRecord(); record[field] = " "
+            expectThrows(try SourceCatalog.decode(catalogData([record])), field)
+        }
+        let first = catalogRecord()
+        expectThrows(try SourceCatalog.decode(catalogData([first, catalogRecord(url: "https://other.invalid/")])))
+        for url in ["https://example.invalid/forum", "https://EXAMPLE.invalid:443/forum/#section"] {
+            expectThrows(try SourceCatalog.decode(catalogData([first, catalogRecord(id: "different", url: url)])))
+        }
+        for status in ["ready", "needs_verification"] {
+            for format in [NSNull(), "unknown-collector"] as [Any] {
+                expectThrows(try SourceCatalog.decode(catalogData([catalogRecord(status: status, format: format)])))
+            }
+        }
+        // Historical dates remain evidence dates, not rewritten to today.
+        let entries = try SourceCatalog.decode(catalogData([first, catalogRecord(status: "login_required", format: NSNull(), id: "research", url: "https://other.invalid/")]))
+        expectEqual(entries.first?.checkedAt, "2024-02-29")
+        expectEqual(entries.count, 2)
+    }
+    @Test func testCatalogSourceBindingNormalizationPreservesFormatPathAndQuery() throws {
+        let entry = try catalogEntry(catalogRecord(url: "https://EXAMPLE.invalid:443/forum/?page=1#evidence"))
+        var source = try entry.makeSource()
+        source.url = "https://example.invalid/forum?page=1#other"
+        expectTrue(entry.isConfigured(in: [source]))
+        let preserved = source
+        expectTrue(entry.isConfigured(in: [source]))
+        expectEqual(source, preserved)
+        for url in ["http://example.invalid/forum?page=1", "https://example.invalid/Forum?page=1", "https://example.invalid/forum?page=2"] {
+            source.url = url
+            expectFalse(entry.isConfigured(in: [source]))
+        }
+        let root = try catalogEntry(catalogRecord(url: "http://example.invalid:80/"))
+        source = try root.makeSource(); source.url = "http://EXAMPLE.invalid#section"
+        expectTrue(root.isConfigured(in: [source]))
+        source.format = "feed"
+        expectFalse(root.isConfigured(in: [source]))
+        let unsupported = try catalogEntry(catalogRecord(status: "unsupported", format: NSNull()))
+        expectFalse(unsupported.isConfigured(in: [source]))
     }
     @Test func testSourceBindingChangesOnlyWithURLOrFormat() throws {
         var original = Source(); original.url = "http://example.onion/forum"
